@@ -6,6 +6,7 @@ TG_TOKEN="8526087156:AAHR5forb44MA061r0zgcPMiGtkkxHD5K6o"
 TG_CHAT_ID="6303873752"
 
 # ========== 2. SNI 伪装域名配置区 ==========
+# 随机 SNI 伪装域名池（每次运行自动从列表随机抽取一个）
 SNI_DOMAINS=(
     "www.microsoft.com"
     "aws.amazon.com"
@@ -13,11 +14,19 @@ SNI_DOMAINS=(
     "gateway.icloud.com"
     "www.cloudflare.com"
     "cdn.jsdelivr.net"
+    "www.lovelive-anime.jp"
 )
 SNI_DOMAIN=${SNI_DOMAINS[$RANDOM % ${#SNI_DOMAINS[@]}]}
 
-# ========== 3. TLS 访问指纹配置区 ==========
-TLS_FINGERPRINT="chrome"
+# ========== 3. ⭐ JA3Proxy / TLS 访问指纹配置区（改这里）⭐ ==========
+# 客户端在访问目标网站时使用的 TLS/ClientHello 浏览器指纹预设：
+#   Chrome 系列 : chrome, chrome_100, chrome_106, chrome_120, chrome_124, chrome_131, chrome_133
+#   Safari 系列 : safari, safari_15, safari_16, safari_17_0, safari_18_0
+#   Firefox 系列: firefox, firefox_102, firefox_120, firefox_133
+#   Edge 系列   : edge, edge_101, edge_106
+#   随机伪装    : randomized, randomized_alpn
+TLS_FINGERPRINT="chrome120"
+# =============================================================
 
 # ========== 4. 端口配置区 ==========
 LISTEN_PORT=10111
@@ -37,7 +46,7 @@ if ! command -v docker &>/dev/null; then
 fi
 docker info &>/dev/null || err "Docker 守护进程未运行"
 
-# 先拉取镜像，防止 x25519 输出混入 Docker 镜像拉取日志
+# 预先拉取镜像，防止拉取日志混入后文密钥提取管道
 log "预热拉取 Xray 镜像..."
 docker pull ghcr.io/xtls/xray-core:latest &>/dev/null || true
 
@@ -52,14 +61,13 @@ sleep 1
 log "配置 REALITY 密钥与伪装参数..."
 UUID=$(cat /proc/sys/kernel/random/uuid)
 
-# 修复：使用 awk 正则模糊匹配，兼容冒号与带空格的输出格式
+# 修复：使用 awk 正则匹配冒号和不同格式，彻底避免生成空 privateKey
 KEYS=$(docker run --rm ghcr.io/xtls/xray-core:latest x25519 2>/dev/null)
 PRIVATE_KEY=$(echo "$KEYS" | awk -F': ' '/Private/ {print $2}' | tr -d ' \r\n')
 PUBLIC_KEY=$(echo "$KEYS" | awk -F': ' '/Public/ {print $2}' | tr -d ' \r\n')
 
-# 容错降级判断：如果 docker 提取仍然为空，改用自带 openssl 兜底提取或校验
 if [ -z "$PRIVATE_KEY" ] || [ -z "$PUBLIC_KEY" ]; then
-    err "生成 REALITY 密钥失败，请检查 Docker 或网络状态！"
+    err "生成 REALITY 密钥失败，请检查 Docker 环境"
 fi
 
 SHORT_ID=$(openssl rand -hex 8)
